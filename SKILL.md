@@ -1,6 +1,6 @@
 ---
 name: netbox-asset-management
-description: Comprehensive skill for querying NetBox infrastructure assets including physical devices, hardware components (RAM, disks, SFPs, interfaces), sites/datacenters, device models (device types), IPAM/subnets, racks, and spare parts. Use when users ask about server specs, site summaries, device types, hardware components, IP allocations, or rack space in NetBox. Do NOT use for virtual machines, vSphere/vCenter hypervisors, or cloud instances.
+description: Comprehensive skill for querying NetBox infrastructure assets including physical devices, hardware components (RAM, disks, SFPs, interfaces), sites/datacenters, device models (device types), IPAM/subnets, racks, and spare parts. IMPORTANT: Spare components in NetBox are explicitly assigned to a placeholder device named 'spare' (or starting with 'spare-'). Always query inventory items on 'spare' devices for stock counts. Use when users ask about server specs, site summaries, device types, hardware components, spare parts, IP allocations, or rack space in NetBox. Do NOT use for virtual machines, vSphere/vCenter hypervisors, or cloud instances.
 ---
 
 # NetBox Infrastructure & Asset Management Skill
@@ -16,7 +16,16 @@ This skill guides NanoCortex on executing precise, token-optimized queries again
 - ALWAYS use the available NetBox MCP tools (`search_objects`, `get_objects`, etc.).
 - NEVER generate raw HTTP commands (`curl`), shell scripts, or invent fake API gateways.
 
-### 2. Strict Token & Context Optimization (`fields` Projection)
+### 2. CRITICAL: Spare Parts Lookup Logic ("spare" Device) ⚠️
+- **Core Convention:** In NetBox, all spare/stock hardware components (such as RAM modules, SFP optical transceivers, disks, power supplies, expansion cards) are **assigned to a dedicated placeholder device named `spare` (or `spare-*` like `spare-tehran-dc`)**.
+- **Execution Workflow for Spare Queries:**
+  When a user asks about spare parts, stock inventory, or available spare components (e.g., *"چند تا رم یا SFP اسپر داریم؟"*):
+  1. **Direct Target:** Go directly to `dcim/inventory-items` attached to the device named `spare` (or devices whose name starts with `spare`).
+  2. **Filter & Count:** Filter inventory items by `device=spare` (or `device__icontains=spare`) and match the component model, `part_id`, or description requested.
+  3. **Aggregate:** Count the exact number of matching items assigned to that `spare` device.
+  4. **Report:** Display the stock count per site/datacenter based on which `spare` device host they are assigned to.
+
+### 3. Strict Token & Context Optimization (`fields` Projection)
 NetBox API responses are extremely dense. To prevent context window saturation and slow response times, **ALWAYS** pass the `fields` parameter in MCP query calls to project only the relevant attributes for the query type:
 
 - **Devices (`dcim/devices`):**  
@@ -34,7 +43,7 @@ NetBox API responses are extremely dense. To prevent context window saturation a
 - **Racks (`dcim/racks`):**  
   `id,name,site,location,status,u_height,type,facility_id`
 
-### 3. Zero-Hallucination Guardrail
+### 4. Zero-Hallucination Guardrail
 If a device, site, component, or IP address is not found in NetBox, output clearly in Persian:
 > *"تجهیز، سایت یا آدرس مورد نظر در سیستم NetBox یافت نشد."*
 
@@ -55,9 +64,9 @@ If a device, site, component, or IP address is not found in NetBox, output clear
 
 ### D. Hardware Components & Spares (`inventory-items` & `spare` logic)
 - Components include RAM modules, SFPs, Power Supplies, Expansion Cards, and Disks.
-- **Stock/Spare Inventory:** Spare hardware is attached to placeholder devices named `spare` or `spare-*`.
+- **Rule for Spares:** Remember that all spare hardware is attached to `spare` or `spare-*` devices. Never search production servers when counting stock/spare parts.
 - When queried about stock or spare parts:
-  1. Filter `inventory-items` attached to devices starting with `spare`.
+  1. Filter `inventory-items` attached to devices named `spare` / `spare-*`.
   2. Group items by `manufacturer`, `part_id`, and `description`.
   3. Calculate total available counts per site.
 
@@ -68,6 +77,7 @@ If a device, site, component, or IP address is not found in NetBox, output clear
 ---
 
 ## Gotchas & Common Traps
+- **Spare Search Fallback:** If searching for `device=spare` yields no results, try searching with `device__icontains=spare` to catch site-specific spare devices (e.g., `spare-thr-01`).
 - **Filter Precision:** NetBox API filters are case-sensitive. Use lower-case slugs when filtering by site or role (e.g., `site=tehran-dc1`).
 - **Missing Primary IP:** `primary_ip` is an object. Extract its `address` property (e.g., `device.primary_ip.address`).
 - **Large Result Sets:** If a query returns > 25 objects, state the total count and present the top 20 items with a note that results were truncated.
